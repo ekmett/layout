@@ -49,3 +49,8 @@ $ ./sbt
 > ~ compile
 
 For other options, read: http://code.google.com/p/simple-build-tool/wiki/DocumentationHome
+
+To create an external dependency on this in your sbt build.scala use:
+
+  val comonadMaven = "comonad.com Maven Repository" at "http://maven.comonad.com/"
+  val layout = "com.comonad" %% "layout" % "0.1"
