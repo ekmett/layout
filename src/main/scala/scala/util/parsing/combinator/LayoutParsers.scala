@@ -7,10 +7,8 @@ import scala.collection.immutable.PagedSeq
 import scala.collection.mutable._
 import scala.util.parsing.input._
 
-trait LayoutParsers extends Parsers {
+trait LayoutParsers extends RegexParsers {
   import LayoutToken._
-
-  type Elem = Char
 
   case class LayoutReader(
     underlying: Input,
@@ -45,6 +43,7 @@ trait LayoutParsers extends Parsers {
       case IndentedLayout(n) :: _ => n
       case _ => 0
     }
+    override def drop(n: Int): LayoutReader = copy (underlying = underlying.drop(n)) withLrStack lrStack
   }
   
   override def phrase[T](p: Parser[T]) = {
@@ -52,7 +51,7 @@ trait LayoutParsers extends Parsers {
     new PackratParser[T] {
       def apply(in: Input) = in match {
         case in: LayoutReader => q(in)
-        case in => q(new LayoutReader(in))
+        case _ => q(new LayoutReader(in))
       }
     }
   }
@@ -284,24 +283,24 @@ to update each parser involved in the recursion.
       Failure(msg, input)
   )
 
-  implicit def string(s: String) : Parser[String] = 
-    (success(()) /: s)((s: Parser[Unit], c: Char) => s <~ char(c)) ~> success(s)
+  // implicit def string(s: String) : Parser[String] = 
+  //  (success(()) /: s)((s: Parser[Unit], c: Char) => s <~ char(c)) ~> success(s)
 
-  implicit def char(c: Char) : Parser[Char] = elem(c)
+  implicit def char(c: Char) : Parser[Char] = more ~> elem(c)
 
   private object Layout { 
     def nested(side: Boolean): Parser[Boolean] = 
       ("-}" ~> success(side)) | 
-      (string("{-") ~> (nested(side) flatMap nested)) | 
+      ("{-" ~> (nested(side) flatMap nested)) | 
       (newline ~> nested(true)) | 
       (anyChar ~> nested(side))
     def comment: Parser[LayoutToken] 
-      = string("--") ~> rep(not(newline)) ~> newline ~> whiteSpace(true, true)
+      = "--" ~> rep(not(newline)) ~> newline ~> whiteSpace(true, true)
     def realWhitespace = rep1(elem("spaces", java.lang.Character.isWhitespace))
     def whiteSpace(spaced: Boolean, side: Boolean): Parser[LayoutToken] = 
-      (string("{-") ~> (nested(side).flatMap(k => whiteSpace(true, k)))) | 
+      ("{-" ~> (nested(side).flatMap(k => whiteSpace(true, k)))) | 
       comment |
-      (char('\n') ~> whiteSpace(true, true)) | 
+      (newline ~> whiteSpace(true, true)) | 
       (realWhitespace ~> whiteSpace(true, side)) |
       (if (side) offside(spaced) else onside(spaced))
     def offside(spaced: Boolean): Parser[LayoutToken] = LayoutParser(input => { 
@@ -363,11 +362,13 @@ to update each parser involved in the recursion.
     (spaced(virtualLeftBrace) ~> repsep(p, spaced(semi)) <~ spaced(virtualRightBrace))
   }
 
-  def parse[T](p: Parser[T], in: Reader[Char]): ParseResult[T] = p(LayoutReader(in))
-  def parse[T](p: Parser[T], in: CharSequence): ParseResult[T] = p(LayoutReader(new CharSequenceReader(in)))
-  def parse[T](p: Parser[T], in: java.io.Reader): ParseResult[T] = p(LayoutReader(new PagedSeqReader(PagedSeq.fromReader(in))))
+  override def skipWhitespace = false
 
-  def parseAll[T](p: Parser[T], in: Reader[Char]): ParseResult[T] = parse(phrase(p), in)
-  def parseAll[T](p: Parser[T], in: CharSequence): ParseResult[T] = parse(phrase(p), in)
-  def parseAll[T](p: Parser[T], in: java.io.Reader): ParseResult[T] = parse(phrase(p), in)
+  override def parse[T](p: Parser[T], in: Reader[Char]): ParseResult[T] = p(LayoutReader(in))
+  override def parse[T](p: Parser[T], in: CharSequence): ParseResult[T] = p(LayoutReader(new CharSequenceReader(in)))
+  override def parse[T](p: Parser[T], in: java.io.Reader): ParseResult[T] = p(LayoutReader(new PagedSeqReader(PagedSeq.fromReader(in))))
+
+  override def parseAll[T](p: Parser[T], in: Reader[Char]): ParseResult[T] = parse(phrase(p), in)
+  override def parseAll[T](p: Parser[T], in: CharSequence): ParseResult[T] = parse(phrase(p), in)
+  override def parseAll[T](p: Parser[T], in: java.io.Reader): ParseResult[T] = parse(phrase(p), in)
 }
